@@ -1,0 +1,1355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="City Navigation & Route Finder System — Real-world OpenStreetMap integration with hand-coded Dijkstra, A*, BFS, DFS, Nearest Facility, and Road Closures.">
+  <title>City Navigator | Route Finder System</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>">
+
+  <!-- Leaflet CSS (CDN) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+  <!-- Application Styles -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════
+     TOOLTIP (Floating over map)
+═══════════════════════════════════════════════════════ -->
+<div id="map-tooltip" class="map-tooltip" style="display:none"></div>
+
+<!-- ═══════════════════════════════════════════════════════
+     MODAL OVERLAY (Benchmark Analysis, Unit Tests, About)
+═══════════════════════════════════════════════════════ -->
+<div id="modal-overlay" class="modal-overlay" style="display:none">
+  <div class="modal-container">
+    <div class="modal-header">
+      <h2 id="modal-title" class="modal-title">Analysis Telemetry</h2>
+      <button class="modal-close" id="modal-close-btn" title="Close Dialog">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body">
+      <!-- Dynamic body content -->
+    </div>
+    <div class="modal-footer" id="modal-footer">
+      <div id="bench-table-container"></div>
+      <canvas id="bench-chart-canvas" width="680" height="220" style="display:none"></canvas>
+      <div id="scaling-table-container"></div>
+      <canvas id="scaling-chart-canvas" width="680" height="220" style="display:none"></canvas>
+      <div id="test-results-container"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     MAIN APPLICATION SHELL
+═══════════════════════════════════════════════════════ -->
+<div class="app-shell">
+
+  <!-- ═══ TOP NAVBAR (64px) ════════════════════════════════════════════════ -->
+  <header class="top-navbar">
+    <div class="brand-group">
+      <div class="brand-icon" aria-hidden="true">
+        <!-- Minimal Location Pin SVG -->
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+          <circle cx="12" cy="10" r="3"></circle>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <span class="brand-title">City Navigator</span>
+        <span class="brand-subtitle">Route Finder &amp; Mobility Engine</span>
+      </div>
+    </div>
+
+    <!-- Geocoding Search Bar (Center) -->
+    <div class="navbar-search">
+      <svg class="navbar-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="8"></circle>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+      </svg>
+      <input type="text" id="city-search-input" class="navbar-search-input" placeholder="Search cities, streets, hospitals..." autocomplete="off" spellcheck="false">
+      <div id="city-search-dropdown" class="navbar-search-dropdown" style="display:none"></div>
+    </div>
+
+    <!-- Center Navigation Links -->
+    <nav class="nav-links">
+      <button class="nav-link active" id="nav-btn-explore" title="Focus Interactive Map">Explore Map</button>
+      <button class="nav-link" id="nav-btn-planner" title="Open Route Planner">Route Planner</button>
+      <button class="nav-link" id="nav-btn-analytics" title="Open Benchmark Suite">Analytics</button>
+      <button class="nav-link" id="nav-btn-tests" title="Open Automated Test Suite">Test Suite</button>
+      <button class="nav-link" id="nav-btn-about" title="Project Documentation">About</button>
+    </nav>
+
+    <!-- Right Status Group -->
+    <div class="nav-right">
+      <button class="location-btn" id="btn-my-location" title="Center map on my current location">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <circle cx="12" cy="12" r="3"></circle>
+          <line x1="12" y1="2" x2="12" y2="5"></line>
+          <line x1="12" y1="19" x2="12" y2="22"></line>
+          <line x1="2" y1="12" x2="5" y2="12"></line>
+          <line x1="19" y1="12" x2="22" y2="12"></line>
+        </svg>
+        <span>My Location</span>
+      </button>
+      <div class="connectivity-chip" id="connectivity-chip" title="Network connectivity status">
+        <span class="pulse-dot"></span>
+        <span id="connectivity-label">Checking...</span>
+      </div>
+      <button class="menu-toggle-btn" id="mobile-menu-btn" title="Toggle Controls Menu">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ═══ APP WORKSPACE ══════════════════════════════════════════════════════ -->
+  <div class="app-workspace">
+
+    <!-- ═══ SIDEBAR (Left Control Panel) ═══════════════════════════════════ -->
+    <aside class="sidebar" id="sidebar">
+
+      <!-- SECTION: NETWORK DATASET -->
+      <section class="sidebar-section">
+        <div class="section-header">
+          <span class="section-title">
+            <span class="section-icon">🗄️</span>
+            Network Dataset
+          </span>
+          <span class="dataset-badge" id="dataset-status-pill">No Data</span>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <button id="btn-load-sample" class="btn btn-subtle-accent btn-full" title="Load real-world New Delhi Connaught Place road network (offline)">
+            <span>🗺</span> Load Delhi Network (Offline)
+          </button>
+          <div style="display:flex; gap:6px;">
+            <button id="btn-import-json" class="btn btn-secondary btn-full" title="Import custom network JSON file">
+              <span>📂</span> Import JSON
+            </button>
+            <button id="btn-export-json" class="btn btn-ghost" title="Export current network as JSON" style="width:40px; padding:0; justify-content:center;">
+              <span>💾</span>
+            </button>
+          </div>
+          <input type="file" id="city-file-input" accept=".json,.geojson" style="display:none">
+        </div>
+
+        <!-- Preset City Selector (Online) -->
+        <div class="form-field" style="margin-top:10px;">
+          <label class="field-label">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:3px;vertical-align:-1px;">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="2" y1="12" x2="22" y2="12"></line>
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+            </svg>
+            Live City (Internet Required)
+          </label>
+          <div style="display:flex; gap:6px;">
+            <select id="preset-city-select" class="form-select" style="flex:1;">
+              <option value="">— Choose a city —</option>
+              <option value="delhi_cp">New Delhi (Connaught Place)</option>
+              <option value="london_westminster">London (Westminster)</option>
+              <option value="manhattan_midtown">New York (Midtown)</option>
+              <option value="paris_centre">Paris (Louvre Centre)</option>
+              <option value="tokyo_shibuya">Tokyo (Shibuya)</option>
+            </select>
+            <button id="btn-load-preset" class="btn btn-secondary" style="height:40px; padding:0 10px; white-space:nowrap;" title="Download real road network from OpenStreetMap Overpass API">Load</button>
+          </div>
+        </div>
+        <button id="btn-fetch-visible-area" class="btn btn-ghost btn-full" title="Download OSM road data for current visible map area (Overpass API)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          <span>Download Visible Area</span>
+        </button>
+
+        <div id="dataset-info-note" style="font-size:11px; color:var(--text-muted); margin-top:6px; text-align:center; line-height:1.4;">
+          No city data loaded
+        </div>
+      </section>
+
+      <!-- SECTION A: ROUTE PLANNER -->
+      <section class="sidebar-section">
+        <div class="section-header">
+          <span class="section-title">
+            <span class="section-icon">🗺️</span>
+            Route Planner
+          </span>
+        </div>
+
+        <div class="form-field">
+          <label class="field-label" for="source-select">Source Location</label>
+          <div class="select-wrapper">
+            <select id="source-select" class="form-select" title="Select source node">
+              <option value="">📍 Select Source Location 📍</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label class="field-label" for="dest-select">Destination Location</label>
+          <div class="select-wrapper">
+            <select id="dest-select" class="form-select" title="Select destination node">
+              <option value="">📍 Select Destination Location 📍</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Searchable Filter -->
+        <div class="search-wrapper">
+          <input type="text" id="node-search" class="form-input" placeholder="🔍 Search location name..." autocomplete="off">
+          <div id="search-results" class="search-dropdown" style="display:none"></div>
+        </div>
+
+        <div class="click-hint-banner">
+          <span>👆</span>
+          <span>Click map markers to set Source &amp; Destination</span>
+        </div>
+
+        <!-- Algorithm Segmented Tabs -->
+        <div style="margin-top:14px; margin-bottom:6px;">
+          <label class="field-label">Algorithm</label>
+          <div class="algo-segmented" id="algo-group">
+            <label class="algo-tab" title="Dijkstra: Optimal shortest path — O((V+E) log V)">
+              <input type="radio" name="algorithm" value="dijkstra" checked>
+              <span class="algo-tab-pill">Dijkstra</span>
+            </label>
+            <label class="algo-tab" title="A* Search: Heuristic-guided shortest path — O((V+E) log V)">
+              <input type="radio" name="algorithm" value="astar">
+              <span class="algo-tab-pill">A* Search</span>
+            </label>
+            <label class="algo-tab" title="BFS: Fewest road hops — O(V+E)">
+              <input type="radio" name="algorithm" value="bfs">
+              <span class="algo-tab-pill">BFS</span>
+            </label>
+            <label class="algo-tab" title="DFS: Depth exploration — O(V+E)">
+              <input type="radio" name="algorithm" value="dfs">
+              <span class="algo-tab-pill">DFS</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Live Traffic Toggle -->
+        <div class="toggle-item">
+          <div class="toggle-info">
+            <span class="toggle-title">Consider Traffic</span>
+            <span class="toggle-desc">Classification-based factor (not live)</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="traffic-toggle">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+
+        <!-- Primary Find Route Button -->
+        <button id="btn-find-route" class="btn btn-primary btn-full" style="margin-top:10px;" title="Find optimal shortest path">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="3 11 22 2 13 21 11 13 3 11"></polygon>
+          </svg>
+          <span>Find Optimal Route</span>
+        </button>
+      </section>
+
+      <!-- SECTION B: QUICK DESTINATIONS -->
+      <section class="sidebar-section">
+        <div class="section-header">
+          <span class="section-title">
+            <span class="section-icon">🏥</span>
+            Quick Destinations
+          </span>
+        </div>
+        <div class="facility-2x2">
+          <button class="facility-btn btn-facility" data-type="hospital" title="Find nearest hospital">
+            🏥 Hospital
+          </button>
+          <button class="facility-btn btn-facility" data-type="police" title="Find nearest police station">
+            🚔 Police
+          </button>
+          <button class="facility-btn btn-facility" data-type="fire_station" title="Find nearest fire station">
+            🚒 Fire Stn.
+          </button>
+          <button class="facility-btn btn-facility" data-type="petrol_pump" title="Find nearest petrol pump">
+            ⛽ Petrol
+          </button>
+        </div>
+      </section>
+
+      <!-- SECTION C: MAP TOOLS -->
+      <section class="sidebar-section">
+        <div class="section-header">
+          <span class="section-title">
+            <span class="section-icon">🗾️</span>
+            Map Tools
+          </span>
+        </div>
+
+        <!-- Block Road Mode Toggle -->
+        <div class="toggle-item" style="margin-bottom:8px;">
+          <div class="toggle-info">
+            <span class="toggle-title">Road Closure Mode</span>
+            <span class="toggle-desc">Click road edges to block/reopen</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="block-mode-toggle">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <button id="btn-alternate" class="btn btn-secondary btn-full" title="Calculate detour alternate route">
+            <span>↔️</span> Alternate Route
+          </button>
+          <button id="btn-undo" class="btn btn-ghost btn-full" title="Undo last road block closure using Stack">
+            <span>↩️</span> Undo Road Block (Stack)
+          </button>
+          <button id="btn-clear" class="btn btn-ghost btn-full" title="Clear all route paths and selections">
+            <span>🗑️</span> Clear Route &amp; Map
+          </button>
+        </div>
+
+        <!-- Multi-Stop Accordion -->
+        <div style="margin-top:10px; border-top:1px solid var(--border); padding-top:10px;">
+          <div class="toggle-item">
+            <div class="toggle-info">
+              <span class="toggle-title">Multi-Stop Route</span>
+              <span class="toggle-desc">TSP factorial permutations</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="multistop-toggle">
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+          <div id="multistop-stops" class="multistop-panel" style="display:none">
+            <div class="stops-container" id="stops-list">
+              <div style="font-size:11px; color:var(--text-muted); text-align:center;">Click map markers to add stops</div>
+            </div>
+            <div style="display:flex; gap:6px;">
+              <button id="btn-multistop-run" class="btn btn-primary btn-full" style="height:34px; font-size:11.5px;">🗺 Plan Route</button>
+              <button id="btn-multistop-clear" class="btn btn-ghost" style="height:34px; font-size:11.5px; padding:0 10px;">Clear</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SECTION D: PROJECT TOOLS -->
+      <section class="sidebar-section">
+        <div class="section-header">
+          <span class="section-title">
+            <span class="section-icon">📊</span>
+            Verification &amp; Analytics
+          </span>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <button id="btn-benchmark" class="btn btn-subtle-accent btn-full" title="Run 50-trial comparison &amp; scaling tests">
+            <span>📈</span> Run Benchmark &amp; Scaling
+          </button>
+          <button id="btn-tests" class="btn btn-subtle-accent btn-full" title="Run 14 automated unit &amp; boundary test cases">
+            <span>✅</span> Run Test Suite (14 Tests)
+          </button>
+        </div>
+      </section>
+
+      <!-- SECTION E: EXPLORATION SPEED -->
+      <section class="sidebar-section">
+        <div class="section-header">
+          <span class="section-title">
+            <span class="section-icon">⚡️</span>
+            Exploration Speed
+          </span>
+        </div>
+        <div class="speed-control">
+          <div class="speed-row">
+            <span style="font-size:11px; color:var(--text-muted);">Slow</span>
+            <input type="range" id="speed-slider" class="speed-range" min="10" max="150" value="40" step="5">
+            <span style="font-size:11px; color:var(--text-muted);">Fast</span>
+          </div>
+          <div class="speed-meta">
+            <span>Step Animation Delay</span>
+            <span style="font-family:monospace; font-weight:700;"><span id="speed-value">40</span> ms</span>
+          </div>
+        </div>
+      </section>
+
+    </aside><!-- /sidebar -->
+
+    <!-- ═══ MAP VIEWPORT (Center / Main Priority) ═══════════════════════════ -->
+    <main class="map-viewport" id="map-area">
+
+      <!-- Map Floating Header Overlay -->
+      <div class="map-header-overlay">
+        <div class="map-title-chip">
+          <span class="map-title-text">City Network Map</span>
+          <span class="map-stats-text" id="map-stats-text">
+            <span id="toolbar-node-count">0</span> Locations · <span id="toolbar-edge-count">0</span> Roads
+          </span>
+        </div>
+
+        <div class="map-actions-floating">
+          <button class="map-control-btn" id="btn-zoom-in" title="Zoom In">+</button>
+          <button class="map-control-btn" id="btn-zoom-out" title="Zoom Out">−</button>
+          <button class="map-control-btn" id="btn-zoom-reset" title="Reset View">⊙</button>
+          <span class="mode-status-chip" id="mode-badge">Normal Navigation Mode</span>
+        </div>
+      </div>
+
+      <!-- Leaflet Map Container -->
+      <div class="canvas-wrap" id="canvas-container">
+        <div id="map-container" style="width:100%; height:100%; position:relative; z-index:1;"></div>
+
+        <!-- Map Loading Overlay (shown while Overpass fetches) -->
+        <div id="map-loading-overlay" style="display:none;">
+          <div class="map-loading-content">
+            <div class="map-loading-spinner"></div>
+            <div id="map-loading-message" class="map-loading-msg">Loading map...</div>
+          </div>
+        </div>
+
+        <!-- Floating Compact Legend -->
+        <div class="floating-legend" id="floating-legend">
+          <div class="legend-header-row">
+            <span class="legend-head-title">Network Legend</span>
+          </div>
+          <div class="legend-flow-items" id="legend-grid">
+            <!-- Dynamically populated from JS -->
+          </div>
+          <div style="margin-top:6px; padding-top:6px; border-top:1px solid var(--border); display:flex; gap:10px; font-size:10px; color:var(--text-muted);">
+            <span>🟢 Free</span>
+            <span>🟡 Moderate</span>
+            <span>🔴 Heavy</span>
+            <span>⛔ Closed</span>
+          </div>
+          <div style="margin-top:4px; font-size:9.5px; color:var(--text-muted); font-style:italic; line-height:1.3;">
+            Traffic = road-class estimate, not live data
+          </div>
+        </div>
+      </div>
+
+      <!-- Results Dock (Horizontal Stats Strip + Breadcrumbs) -->
+      <div class="results-dock" id="results-dock">
+        <div id="results-panel">
+          <div class="result-placeholder">No route calculated yet</div>
+        </div>
+      </div>
+
+      <!-- Bottom Status Bar -->
+      <div class="status-bar">
+        <span id="status-bar">No city data available — load the Delhi offline network or download a live city above</span>
+        <span id="toolbar-closed-count" style="font-weight:600;">Closed Roads: 0</span>
+      </div>
+
+    </main><!-- /map-viewport -->
+
+  </div><!-- /app-workspace -->
+
+</div><!-- /app-shell -->
+
+<!-- ═══════════════════════════════════════════════════════
+     SCRIPTS (Pure Vanilla JS — Leaflet via CDN, No NPM)
+═══════════════════════════════════════════════════════ -->
+
+<!-- Leaflet JS (CDN) -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- DSA Core (No Dependencies) -->
+<script src="js/minHeap.js"></script>
+<script src="js/graph.js"></script>
+<script src="js/data.js"></script>
+<script src="js/algorithms.js"></script>
+
+<!-- OSM Services & Map Controller -->
+<script src="js/osmService.js"></script>
+<script src="js/mapController.js"></script>
+
+<!-- Canvas UI (still handles algorithm logic + results panel; canvas kept for benchmark charts) -->
+<script src="js/ui.js"></script>
+<script src="js/benchmark.js"></script>
+<script src="js/tests.js"></script>
+
+<!-- Application Bootstrap Controller -->
+<script>
+(function () {
+  'use strict';
+
+  let cityGraph = null;
+  let cityUI = null;
+  let benchRunner = null;
+  let benchmarkHasRun = false;
+  let testsHaveRun = false;
+
+  // ─── Connectivity Indicator ───────────────────────────────────────────────
+  function updateConnectivityChip() {
+    const chip = document.getElementById('connectivity-chip');
+    const label = document.getElementById('connectivity-label');
+    if (!chip || !label) return;
+
+    if (navigator.onLine) {
+      chip.classList.remove('offline');
+      chip.classList.add('online');
+      label.textContent = 'Online';
+      chip.title = 'Connected — live OSM data available';
+    } else {
+      chip.classList.remove('online');
+      chip.classList.add('offline');
+      label.textContent = 'Offline Mode';
+      chip.title = 'Offline — only pre-packaged datasets available';
+    }
+  }
+  window.addEventListener('online',  updateConnectivityChip);
+  window.addEventListener('offline', updateConnectivityChip);
+
+  function initApp() {
+    updateConnectivityChip();
+
+    // 1. Initialize with empty graph (no fake data)
+    cityGraph = new Graph();
+    window.cityGraph = cityGraph;
+
+    // 2. Instantiate Benchmark Runner
+    benchRunner = new BenchmarkRunner(cityGraph);
+    window.benchRunner = benchRunner;
+
+    // 3. Initialize Canvas UI Controller (handles algorithm logic; canvas = fallback for non-geo data)
+    //    We pass a dummy canvas that may not be visible; drawing is handled by MapController instead.
+    const dummyCanvas = document.createElement('canvas');
+    dummyCanvas.width = 10;
+    dummyCanvas.height = 10;
+    cityUI = new CityUI(cityGraph, dummyCanvas);
+    window.cityUI = cityUI;
+
+    // 4. Populate DOM elements
+    populateDropdowns();
+    buildLegend();
+    updateToolbarStats();
+
+    // 5. Wire all UI event listeners
+    bindAllControls();
+
+    // 6. Wire OSM controls
+    bindOsmControls();
+
+    // 7. MapController is initialized in mapController.js as window.mapController
+    //    Patch cityUI.redraw to also update Leaflet map
+    _patchCityUIForLeaflet();
+
+    // 8. Update status
+    const bar = document.getElementById('status-bar');
+    if (bar) bar.textContent = 'Ready — load the Delhi offline network or download a live city.';
+  }
+
+  // ─── Leaflet Integration Patch ────────────────────────────────────────────
+  // CityUI still runs the DSA algorithms and results panel. We patch it so that
+  // after each algorithm run, routes are also drawn on the Leaflet map.
+  function _patchCityUIForLeaflet() {
+    if (!cityUI || !window.mapController) return;
+
+    // Patch runAlgorithm to also draw on Leaflet
+    const _origRunAlgorithm = cityUI.runAlgorithm.bind(cityUI);
+    cityUI.runAlgorithm = function() {
+      _origRunAlgorithm();
+      _syncRouteToLeaflet();
+    };
+
+    // Patch runAlternateRoute
+    const _origRunAlternate = cityUI.runAlternateRoute.bind(cityUI);
+    cityUI.runAlternateRoute = function() {
+      _origRunAlternate();
+      _syncAlternateRouteToLeaflet();
+    };
+
+    // Patch runNearestFacility
+    const _origRunNearest = cityUI.runNearestFacility.bind(cityUI);
+    cityUI.runNearestFacility = function(type) {
+      _origRunNearest(type);
+      _syncRouteToLeaflet();
+    };
+
+    // Patch runMultiStop
+    const _origMultiStop = cityUI.runMultiStop.bind(cityUI);
+    cityUI.runMultiStop = function() {
+      _origMultiStop();
+      _syncRouteToLeaflet();
+    };
+
+    // Patch clear
+    const _origClear = cityUI.clear.bind(cityUI);
+    cityUI.clear = function() {
+      _origClear();
+      if (window.mapController) {
+        window.mapController.clearRoutes();
+        if (typeof window.mapController.clearExploration === 'function') {
+          window.mapController.clearExploration();
+        }
+      }
+    };
+
+    // Patch setSource
+    const _origSetSource = cityUI.setSource.bind(cityUI);
+    cityUI.setSource = function(nodeId) {
+      _origSetSource(nodeId);
+      if (window.mapController && typeof window.mapController.highlightSourceDest === 'function') {
+        window.mapController.highlightSourceDest(nodeId, cityUI.selectedDest);
+      }
+    };
+
+    // Patch setDest
+    const _origSetDest = cityUI.setDest.bind(cityUI);
+    cityUI.setDest = function(nodeId) {
+      _origSetDest(nodeId);
+      if (window.mapController && typeof window.mapController.highlightSourceDest === 'function') {
+        window.mapController.highlightSourceDest(cityUI.selectedSource, nodeId);
+      }
+    };
+
+    // Patch undoLastBlock
+    const _origUndo = cityUI.undoLastBlock.bind(cityUI);
+    cityUI.undoLastBlock = function() {
+      _origUndo();
+      if (window.mapController && typeof window.mapController.refreshEdgeStyles === 'function') {
+        window.mapController.refreshEdgeStyles();
+      }
+    };
+
+    // Patch redraw
+    const _origRedraw = cityUI.redraw.bind(cityUI);
+    cityUI.redraw = function() {
+      // In Leaflet mode, single step animation updates happen through showExplorationStep
+      if (window.mapController && cityUI.visitedOrder && cityUI.animStep > 0 && cityUI.animStep <= cityUI.visitedOrder.length) {
+        if (typeof window.mapController.showExplorationStep === 'function') {
+          window.mapController.showExplorationStep(cityUI.visitedOrder[cityUI.animStep - 1], window.cityGraph, cityUI.animStep);
+        }
+      }
+    };
+  }
+
+  function _syncRouteToLeaflet() {
+    if (!window.mapController || !cityUI) return;
+    if (cityUI.activePath && cityUI.activePath.length > 1) {
+      window.mapController.drawRoute(cityUI.activePath, window.cityGraph, '#159B72', false);
+    }
+    if (typeof window.mapController.clearExploration === 'function') {
+      window.mapController.clearExploration();
+    }
+  }
+
+  function _syncAlternateRouteToLeaflet() {
+    if (!window.mapController || !cityUI) return;
+    if (cityUI.alternatePath && cityUI.alternatePath.length > 1) {
+      window.mapController.drawRoute(cityUI.alternatePath, window.cityGraph, '#E9A23B', true);
+    }
+  }
+
+  // ─── Load Network Data ────────────────────────────────────────────────────
+  window.loadNetworkData = function(dataset, datasetName) {
+    try {
+      cityGraph = Graph.fromCityData(dataset);
+      window.cityGraph = cityGraph;
+      benchRunner = new BenchmarkRunner(cityGraph);
+      window.benchRunner = benchRunner;
+      benchmarkHasRun = false;
+
+      cityUI.graph = cityGraph;
+      cityUI.selectedSource = null;
+      cityUI.selectedDest = null;
+      cityUI.activePath = [];
+      cityUI.alternatePath = [];
+      cityUI.visitedOrder = [];
+      cityUI.multiStops = [];
+      cityUI.undoStack = new Stack();
+
+      populateDropdowns();
+      updateToolbarStats();
+
+      const note = document.getElementById('dataset-info-note');
+      if (note) {
+        const facilities = cityGraph.getAllNodes().filter(n => n.type !== 'junction');
+        note.textContent = `${datasetName} · ${cityGraph.nodeCount()} locations · ${cityGraph.edgeCount()} roads · ${facilities.length} facilities`;
+      }
+
+      const pill = document.getElementById('dataset-status-pill');
+      if (pill) {
+        pill.textContent = `${cityGraph.nodeCount()} Nodes`;
+        pill.classList.add('loaded');
+      }
+
+      const bar = document.getElementById('status-bar');
+      if (bar) bar.textContent = `Network loaded: ${datasetName} (${cityGraph.nodeCount()} locations, ${cityGraph.edgeCount()} roads).`;
+
+      // Update results panel
+      const panel = document.getElementById('results-panel');
+      if (panel) panel.innerHTML = `<div class="result-placeholder">Network loaded — select Source &amp; Destination to find a route</div>`;
+      const badge = document.getElementById('results-algo-badge');
+      if (badge) badge.textContent = '';
+
+      // Load into Leaflet map
+      if (window.mapController) {
+        window.mapController.loadGraphData(cityGraph);
+      }
+
+    } catch (err) {
+      console.error('Error loading network dataset:', err);
+      alert('Error loading network dataset: ' + err.message);
+    }
+  };
+
+  window.loadSampleNetwork = function () {
+    const data = (window.osmService && window.osmService.REAL_OSM_DELHI_DATASET)
+      ? window.osmService.REAL_OSM_DELHI_DATASET
+      : window.loadSampleCityData();
+    loadNetworkData(data, 'New Delhi — Connaught Place (Offline)');
+  };
+
+  // ─── Dropdown Population ──────────────────────────────────────────────────
+  function populateDropdowns() {
+    const srcSel  = document.getElementById('source-select');
+    const destSel = document.getElementById('dest-select');
+    if (!srcSel || !destSel) return;
+
+    const nodes = cityGraph ? cityGraph.getAllNodes().slice().sort((a, b) => a.name.localeCompare(b.name)) : [];
+    const labels = window.NODE_TYPE_LABELS || {};
+
+    if (nodes.length === 0) {
+      srcSel.innerHTML  = '<option value="">📍 No city data available 📍</option>';
+      destSel.innerHTML = '<option value="">📍 No city data available 📍</option>';
+      return;
+    }
+
+    const buildOptions = (selectEl, defaultPlaceholder) => {
+      selectEl.innerHTML = `<option value="">${defaultPlaceholder}</option>`;
+
+      const grouped = {};
+      nodes.forEach(n => {
+        if (!grouped[n.type]) grouped[n.type] = [];
+        grouped[n.type].push(n);
+      });
+
+      const typeOrder = ['hospital', 'police', 'fire_station', 'petrol_pump', 'school', 'mall', 'park', 'railway_station', 'airport', 'landmark', 'junction'];
+      typeOrder.forEach(type => {
+        if (!grouped[type]) return;
+        const groupLabel = labels[type] || type.toUpperCase();
+        const optGroup = document.createElement('optgroup');
+        optGroup.label = groupLabel;
+        grouped[type].forEach(n => {
+          const opt = document.createElement('option');
+          opt.value = n.id;
+          opt.textContent = `${n.name} [${n.id}]`;
+          optGroup.appendChild(opt);
+        });
+        selectEl.appendChild(optGroup);
+      });
+    };
+
+    buildOptions(srcSel, '📍 Select Source Location 📍');
+    buildOptions(destSel, '📍 Select Destination Location 📍');
+  }
+
+  // ─── Legend ────────────────────────────────────────────────────────────────
+  function buildLegend() {
+    const grid = document.getElementById('legend-grid');
+    if (!grid) return;
+
+    const colors = window.NODE_COLORS || {
+      hospital: '#DC2626', police: '#2563EB', fire_station: '#EA580C',
+      school: '#7C3AED', mall: '#DB2777', park: '#16A34A',
+      railway_station: '#CA8A04', petrol_pump: '#0891B2',
+      airport: '#D97706', landmark: '#9333EA', junction: '#64756F'
+    };
+    const labels = window.NODE_TYPE_LABELS || {};
+    const icons = {
+      junction: '●', hospital: '🏥', police: '🚔', fire_station: '🚒',
+      school: '🏫', mall: '🏪', park: '🌳', railway_station: '🚉',
+      petrol_pump: '⛽', airport: '✈️', landmark: '🏛️'
+    };
+
+    grid.innerHTML = '';
+    Object.keys(colors).forEach(type => {
+      const item = document.createElement('div');
+      item.className = 'legend-flow-item';
+      item.innerHTML = `
+        <span class="legend-flow-dot" style="background:${colors[type]}"></span>
+        <span>${icons[type] || ''} ${labels[type] || type}</span>
+      `;
+      grid.appendChild(item);
+    });
+  }
+
+  // ─── Toolbar Stats ────────────────────────────────────────────────────────
+  function updateToolbarStats() {
+    const nodeCountEl = document.getElementById('toolbar-node-count');
+    const edgeCountEl = document.getElementById('toolbar-edge-count');
+    const closedEl    = document.getElementById('toolbar-closed-count');
+
+    if (nodeCountEl) nodeCountEl.textContent = cityGraph ? `${cityGraph.nodeCount()}` : '0';
+    if (edgeCountEl) edgeCountEl.textContent = cityGraph ? `${cityGraph.edgeCount()}` : '0';
+
+    setInterval(() => {
+      if (closedEl && cityGraph) {
+        closedEl.textContent = `Closed Roads: ${cityGraph.closedEdges ? cityGraph.closedEdges.size : 0}`;
+      }
+    }, 400);
+  }
+
+  // ─── OSM Controls Binding ─────────────────────────────────────────────────
+  function bindOsmControls() {
+    // My Location button
+    const myLocationBtn = document.getElementById('btn-my-location');
+    if (myLocationBtn) {
+      myLocationBtn.addEventListener('click', () => {
+        if (window.mapController) window.mapController.locateUser();
+      });
+    }
+
+    // Preset city load
+    const loadPresetBtn = document.getElementById('btn-load-preset');
+    if (loadPresetBtn) {
+      loadPresetBtn.addEventListener('click', () => {
+        const sel = document.getElementById('preset-city-select');
+        const key = sel && sel.value;
+        if (!key) {
+          alert('Please select a city from the dropdown first.');
+          return;
+        }
+        if (!navigator.onLine) {
+          alert('Internet connection required to download live city data. Use "Load Delhi Network (Offline)" instead.');
+          return;
+        }
+        if (window.mapController) window.mapController.loadPresetCity(key);
+      });
+    }
+
+    // Download visible area
+    const fetchAreaBtn = document.getElementById('btn-fetch-visible-area');
+    if (fetchAreaBtn) {
+      fetchAreaBtn.addEventListener('click', () => {
+        if (!navigator.onLine) {
+          alert('Internet connection required to download OSM road data.');
+          return;
+        }
+        if (window.mapController) window.mapController.fetchVisibleArea();
+      });
+    }
+
+    // Geocoding search in navbar
+    const searchInput = document.getElementById('city-search-input');
+    const searchDropdown = document.getElementById('city-search-dropdown');
+    let searchDebounce = null;
+
+    if (searchInput && searchDropdown) {
+      searchInput.addEventListener('input', () => {
+        clearTimeout(searchDebounce);
+        const q = searchInput.value.trim();
+        if (q.length < 2) {
+          searchDropdown.style.display = 'none';
+          return;
+        }
+        searchDebounce = setTimeout(async () => {
+          if (!navigator.onLine) {
+            searchDropdown.innerHTML = '<div class="search-item" style="color:var(--text-muted); cursor:default;">🔌 Offline — geocoding unavailable</div>';
+            searchDropdown.style.display = 'block';
+            return;
+          }
+          try {
+            searchDropdown.innerHTML = '<div class="search-item" style="color:var(--text-muted); cursor:default;">Searching...</div>';
+            searchDropdown.style.display = 'block';
+            const results = await window.osmService.geocoder.search(q);
+            if (results.length === 0) {
+              searchDropdown.innerHTML = '<div class="search-item" style="color:var(--text-muted); cursor:default;">No results found</div>';
+              return;
+            }
+            searchDropdown.innerHTML = '';
+            results.slice(0, 7).forEach(r => {
+              const item = document.createElement('div');
+              item.className = 'search-item';
+              const catIcons = { hospital: '🏥', police: '🚔', fire_station: '🚒', petrol_pump: '⛽', school: '🏫', mall: '🏪', park: '🌳', railway_station: '🚉', city: '🌆', street: '🛣️', location: '📍' };
+              item.innerHTML = `
+                <span>${catIcons[r.category] || '📍'} <strong>${r.name}</strong></span>
+                <span class="search-tag">${r.category}</span>
+              `;
+              item.addEventListener('click', () => {
+                searchDropdown.style.display = 'none';
+                searchInput.value = '';
+                if (window.mapController) {
+                  window.mapController.flyTo(r.lat, r.lng, 16);
+                  window.mapController.showTemporaryMarker(r.lat, r.lng, r.name, r.category);
+                }
+              });
+              searchDropdown.appendChild(item);
+            });
+          } catch (err) {
+            searchDropdown.innerHTML = `<div class="search-item" style="color:var(--danger); cursor:default;">Search error: ${err.message}</div>`;
+          }
+        }, 500);
+      });
+
+      document.addEventListener('click', (e) => {
+        if (!searchInput.contains(e.target) && !searchDropdown.contains(e.target)) {
+          searchDropdown.style.display = 'none';
+        }
+      });
+    }
+  }
+
+  // ─── Main Controls Binding ────────────────────────────────────────────────
+  function bindAllControls() {
+    // 0. Dataset Management
+    const loadSampleBtn = document.getElementById('btn-load-sample');
+    if (loadSampleBtn) {
+      loadSampleBtn.addEventListener('click', () => window.loadSampleNetwork());
+    }
+
+    const importJsonBtn = document.getElementById('btn-import-json');
+    const fileInput = document.getElementById('city-file-input');
+    if (importJsonBtn && fileInput) {
+      importJsonBtn.addEventListener('click', () => { fileInput.value = ''; fileInput.click(); });
+      fileInput.addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const parsed = window.parseCityJSON(event.target.result);
+            loadNetworkData(parsed, file.name.replace(/\.[^/.]+$/, ''));
+          } catch (err) {
+            alert('Failed to parse city JSON file: ' + err.message);
+          }
+        };
+        reader.readAsText(file);
+      });
+    }
+
+    const exportJsonBtn = document.getElementById('btn-export-json');
+    if (exportJsonBtn) {
+      exportJsonBtn.addEventListener('click', () => {
+        if (!cityGraph || cityGraph.nodeCount() === 0) {
+          alert('No city network data loaded to export.');
+          return;
+        }
+        const dataToExport = {
+          name: 'Exported City Network',
+          exportedAt: new Date().toISOString(),
+          nodes: cityGraph.getAllNodes(),
+          edges: cityGraph.getAllEdges().map(e => ({ u: e.u, v: e.v, weight: e.weight, traffic: e.traffic, blocked: e.blocked }))
+        };
+        const blob = new Blob([JSON.stringify(dataToExport, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'city-network.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      });
+    }
+
+    // Source / Dest dropdowns
+    const srcSel = document.getElementById('source-select');
+    const destSel = document.getElementById('dest-select');
+    if (srcSel) srcSel.addEventListener('change', () => cityUI.setSource(srcSel.value || null));
+    if (destSel) destSel.addEventListener('change', () => cityUI.setDest(destSel.value || null));
+
+    // Node search box (local graph search)
+    const searchInput = document.getElementById('node-search');
+    const searchResults = document.getElementById('search-results');
+    if (searchInput && searchResults) {
+      searchInput.addEventListener('input', () => {
+        if (!cityGraph || cityGraph.nodeCount() === 0) { searchResults.style.display = 'none'; return; }
+        const query = searchInput.value.trim().toLowerCase();
+        if (query.length < 2) { searchResults.style.display = 'none'; return; }
+
+        const matches = cityGraph.getAllNodes()
+          .filter(n => n.name.toLowerCase().includes(query) || n.id.toLowerCase().includes(query))
+          .slice(0, 8);
+
+        if (matches.length === 0) { searchResults.style.display = 'none'; return; }
+
+        searchResults.innerHTML = '';
+        matches.forEach(node => {
+          const item = document.createElement('div');
+          item.className = 'search-item';
+          const typeLabel = (window.NODE_TYPE_LABELS || {})[node.type] || node.type;
+          item.innerHTML = `<span><strong>${node.name}</strong></span><span class="search-tag">${typeLabel}</span>`;
+          item.addEventListener('click', () => {
+            searchResults.style.display = 'none';
+            searchInput.value = '';
+            if (!cityUI.selectedSource) {
+              cityUI.setSource(node.id);
+            } else {
+              cityUI.setDest(node.id);
+            }
+            // Pan Leaflet to node
+            const n = cityGraph.getNode(node.id);
+            if (n && window.mapController) {
+              const lat = n.lat || n.y;
+              const lng = n.lng || n.x;
+              if (lat && lng) window.mapController.flyTo(lat, lng, 17);
+            }
+          });
+          searchResults.appendChild(item);
+        });
+        searchResults.style.display = 'block';
+      });
+      document.addEventListener('click', (e) => {
+        if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
+          searchResults.style.display = 'none';
+        }
+      });
+    }
+
+    // Algorithm radio selector
+    document.querySelectorAll('input[name="algorithm"]').forEach(radio => {
+      radio.addEventListener('change', () => {
+        cityUI.currentAlgo = radio.value;
+        const badge = document.getElementById('results-algo-badge');
+        const labels = { dijkstra: "Dijkstra's", astar: 'A* Search', bfs: 'BFS', dfs: 'DFS' };
+        if (badge) badge.textContent = labels[radio.value] || radio.value;
+        if (cityUI.selectedSource && cityUI.selectedDest) cityUI.runAlgorithm();
+      });
+    });
+
+    // Traffic toggle
+    const trafficToggle = document.getElementById('traffic-toggle');
+    if (trafficToggle) {
+      trafficToggle.addEventListener('change', (e) => {
+        cityUI.useTraffic = e.target.checked;
+        const bar = document.getElementById('status-bar');
+        if (bar) bar.textContent = `Traffic weighting: ${e.target.checked ? 'ENABLED (classification-based factor)' : 'DISABLED (pure physical distance)'}`;
+        if (cityUI.selectedSource && cityUI.selectedDest) cityUI.runAlgorithm();
+      });
+    }
+
+    // Block road mode toggle
+    const blockModeToggle = document.getElementById('block-mode-toggle');
+    const modeBadge = document.getElementById('mode-badge');
+    if (blockModeToggle) {
+      blockModeToggle.addEventListener('change', (e) => {
+        cityUI.blockRoadMode = e.target.checked;
+        if (window.mapController) window.mapController.setBlockRoadMode(e.target.checked);
+        if (modeBadge) {
+          modeBadge.textContent = e.target.checked ? '⛔ Road Closure Mode Active (Click any road)' : 'Normal Navigation Mode';
+          modeBadge.className = e.target.checked ? 'mode-status-chip mode-block' : 'mode-status-chip';
+        }
+      });
+    }
+
+    // Speed slider
+    const speedSlider = document.getElementById('speed-slider');
+    const speedVal = document.getElementById('speed-value');
+    if (speedSlider) {
+      speedSlider.addEventListener('input', () => {
+        const val = parseInt(speedSlider.value, 10);
+        cityUI.animationSpeed = val;
+        if (speedVal) speedVal.textContent = val;
+      });
+    }
+
+    // Action buttons
+    document.getElementById('btn-find-route').addEventListener('click', () => cityUI.runAlgorithm());
+    document.getElementById('btn-alternate').addEventListener('click', () => cityUI.runAlternateRoute());
+    document.getElementById('btn-undo').addEventListener('click', () => cityUI.undoLastBlock());
+    document.getElementById('btn-clear').addEventListener('click', () => cityUI.clear());
+
+    // Emergency facility buttons
+    document.querySelectorAll('.btn-facility').forEach(btn => {
+      btn.addEventListener('click', () => cityUI.runNearestFacility(btn.dataset.type));
+    });
+
+    // Multi-Stop
+    const multiStopToggle = document.getElementById('multistop-toggle');
+    const multiStopPanel  = document.getElementById('multistop-stops');
+    if (multiStopToggle && multiStopPanel) {
+      multiStopToggle.addEventListener('change', (e) => {
+        cityUI.multiStopMode = e.target.checked;
+        multiStopPanel.style.display = e.target.checked ? 'block' : 'none';
+        cityUI.multiStops = [];
+        updateStopsList();
+      });
+    }
+    document.getElementById('btn-multistop-run').addEventListener('click', () => cityUI.runMultiStop());
+    document.getElementById('btn-multistop-clear').addEventListener('click', () => {
+      cityUI.multiStops = [];
+      updateStopsList();
+    });
+    setInterval(updateStopsList, 300);
+
+    // Zoom controls (delegate to mapController)
+    document.getElementById('btn-zoom-in').addEventListener('click', () => {
+      if (window.mapController) window.mapController.zoomIn();
+    });
+    document.getElementById('btn-zoom-out').addEventListener('click', () => {
+      if (window.mapController) window.mapController.zoomOut();
+    });
+    document.getElementById('btn-zoom-reset').addEventListener('click', () => {
+      if (window.mapController) window.mapController.resetView();
+    });
+
+    // Top navbar links
+    document.getElementById('nav-btn-explore').addEventListener('click', () => {
+      setActiveNavLink('nav-btn-explore');
+      if (window.mapController) window.mapController.resetView();
+    });
+    document.getElementById('nav-btn-planner').addEventListener('click', () => {
+      setActiveNavLink('nav-btn-planner');
+      const srcEl = document.getElementById('source-select');
+      if (srcEl) srcEl.focus();
+    });
+    document.getElementById('nav-btn-analytics').addEventListener('click', () => {
+      setActiveNavLink('nav-btn-analytics');
+      openBenchmarkModal();
+    });
+    document.getElementById('nav-btn-tests').addEventListener('click', () => {
+      setActiveNavLink('nav-btn-tests');
+      openTestsModal();
+    });
+    document.getElementById('nav-btn-about').addEventListener('click', () => {
+      setActiveNavLink('nav-btn-about');
+      openAboutModal();
+    });
+
+    const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+    if (mobileMenuBtn) {
+      mobileMenuBtn.addEventListener('click', () => {
+        const sidebar = document.getElementById('sidebar');
+        if (sidebar) sidebar.classList.toggle('mobile-collapsed');
+      });
+    }
+
+    // Benchmark & Tests
+    document.getElementById('btn-benchmark').addEventListener('click', openBenchmarkModal);
+    document.getElementById('btn-tests').addEventListener('click', openTestsModal);
+
+    const closeBtn = document.getElementById('modal-close-btn');
+    const overlay  = document.getElementById('modal-overlay');
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (overlay) overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+  }
+
+  function setActiveNavLink(id) {
+    document.querySelectorAll('.nav-link').forEach(btn => btn.classList.remove('active'));
+    const target = document.getElementById(id);
+    if (target) target.classList.add('active');
+  }
+
+  function updateStopsList() {
+    const list = document.getElementById('stops-list');
+    if (!list || !cityUI || !cityUI.multiStopMode) return;
+
+    if (!cityUI.multiStops || cityUI.multiStops.length === 0) {
+      list.innerHTML = `<div style="font-size:11px; color:var(--text-muted); text-align:center; padding:6px 0;">Click map markers to add waypoint stops</div>`;
+      return;
+    }
+
+    list.innerHTML = cityUI.multiStops.map((id, idx) => {
+      const node = cityGraph.getNode(id);
+      return `
+        <div class="stop-row">
+          <span class="stop-badge">#${idx + 1}</span>
+          <span class="stop-title">${node ? node.name : id}</span>
+          <button class="stop-del" title="Remove stop" onclick="window._removeStop(${idx})">✕</button>
+        </div>
+      `;
+    }).join('');
+  }
+
+  window._removeStop = (idx) => {
+    if (cityUI && cityUI.multiStops) {
+      cityUI.multiStops.splice(idx, 1);
+      updateStopsList();
+    }
+  };
+
+  // ─── Modal Handlers ────────────────────────────────────────────────────────
+  function openModal(title, bodyHtml) {
+    const overlay = document.getElementById('modal-overlay');
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-body').innerHTML = bodyHtml;
+    document.getElementById('bench-table-container').innerHTML = '';
+    document.getElementById('scaling-table-container').innerHTML = '';
+    document.getElementById('test-results-container').innerHTML = '';
+    document.getElementById('bench-chart-canvas').style.display = 'none';
+    document.getElementById('scaling-chart-canvas').style.display = 'none';
+    overlay.style.display = 'flex';
+  }
+
+  function closeModal() {
+    document.getElementById('modal-overlay').style.display = 'none';
+    setActiveNavLink('nav-btn-explore');
+  }
+
+  function openBenchmarkModal() {
+    if (!benchmarkHasRun) {
+      openModal(
+        'Algorithmic Benchmark & Empirical Scaling',
+        `
+        <div style="text-align:center; padding:36px 16px;">
+          <div style="font-size:38px; margin-bottom:12px;">📊</div>
+          <h3 style="font-size:16px; font-weight:700; color:var(--text); margin-bottom:8px;">Run benchmark to see results</h3>
+          <p style="font-size:12.5px; color:var(--text-muted); max-width:440px; margin:0 auto 20px auto; line-height:1.5;">
+            Executes a 50-trial empirical comparison between Dijkstra, A*, and BFS on the network, followed by empirical scaling across synthetic graphs from 50 up to 2,000 vertices.
+          </p>
+          <button id="btn-exec-benchmark" class="btn btn-primary" style="min-width:200px;">
+            <span>🚀 Run Benchmark &amp; Scaling</span>
+          </button>
+        </div>
+        `
+      );
+      const execBtn = document.getElementById('btn-exec-benchmark');
+      if (execBtn) {
+        execBtn.addEventListener('click', () => {
+          if (!cityGraph || cityGraph.nodeCount() < 2) window.loadSampleNetwork();
+          execBtn.disabled = true;
+          execBtn.innerHTML = '<span>⏳ Executing 50 trials...</span>';
+          document.getElementById('modal-body').innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);">Running 50 random trials on city network... please wait.</div>';
+          setTimeout(() => {
+            benchRunner.runComparison(50);
+            benchRunner.renderResultsTable(document.getElementById('bench-table-container'));
+            const chartCanvas = document.getElementById('bench-chart-canvas');
+            chartCanvas.style.display = 'block';
+            benchRunner.drawComparisonChart(chartCanvas);
+            document.getElementById('modal-body').innerHTML = `
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <p style="color:var(--text-muted); font-size:12.5px;">
+                  Empirical comparison assessing node expansions and execution time between uninformed (Dijkstra/BFS) and heuristic-guided (A*) engines.
+                </p>
+                <button id="btn-re-bench" class="btn btn-secondary" style="height:32px; font-size:11.5px;">🔄 Re-run Benchmark</button>
+              </div>
+            `;
+            const reBtn = document.getElementById('btn-re-bench');
+            if (reBtn) reBtn.addEventListener('click', () => { benchmarkHasRun = false; openBenchmarkModal(); });
+            benchmarkHasRun = true;
+            setTimeout(() => {
+              benchRunner.runScalingTest();
+              benchRunner.renderScalingTable(document.getElementById('scaling-table-container'));
+              const scalingCanvas = document.getElementById('scaling-chart-canvas');
+              scalingCanvas.style.display = 'block';
+              benchRunner.drawScalingChart(scalingCanvas);
+            }, 60);
+          }, 50);
+        });
+      }
+    } else {
+      openModal(
+        'Algorithmic Benchmark & Empirical Scaling',
+        `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <p style="color:var(--text-muted); font-size:12.5px;">
+            Empirical comparison assessing node expansions and execution time between uninformed (Dijkstra/BFS) and heuristic-guided (A*) engines.
+          </p>
+          <button id="btn-re-bench" class="btn btn-secondary" style="height:32px; font-size:11.5px;">🔄 Re-run Benchmark</button>
+        </div>
+        `
+      );
+      const reBtn = document.getElementById('btn-re-bench');
+      if (reBtn) reBtn.addEventListener('click', () => { benchmarkHasRun = false; openBenchmarkModal(); });
+      benchRunner.renderResultsTable(document.getElementById('bench-table-container'));
+      const chartCanvas = document.getElementById('bench-chart-canvas');
+      chartCanvas.style.display = 'block';
+      benchRunner.drawComparisonChart(chartCanvas);
+      benchRunner.renderScalingTable(document.getElementById('scaling-table-container'));
+      const scalingCanvas = document.getElementById('scaling-chart-canvas');
+      scalingCanvas.style.display = 'block';
+      benchRunner.drawScalingChart(scalingCanvas);
+    }
+  }
+
+  function openTestsModal() {
+    if (!testsHaveRun) {
+      openModal(
+        'Automated DSA Verification Suite',
+        `
+        <div style="text-align:center; padding:36px 16px;">
+          <div style="font-size:38px; margin-bottom:12px;">🧪</div>
+          <h3 style="font-size:16px; font-weight:700; color:var(--text); margin-bottom:8px;">Tests not run yet</h3>
+          <p style="font-size:12.5px; color:var(--text-muted); max-width:440px; margin:0 auto 20px auto; line-height:1.5;">
+            Executes 14 automated unit tests verifying MinHeap priority ordering, Queue FIFO, Stack LIFO, Dijkstra optimality, A* heuristic admissibility, BFS hop count, DFS reachability, road closure detours, and nearest facilities.
+          </p>
+          <button id="btn-exec-tests" class="btn btn-primary" style="min-width:200px;">
+            <span>▶️ Run Test Suite (14 Tests)</span>
+          </button>
+        </div>
+        `
+      );
+      const execBtn = document.getElementById('btn-exec-tests');
+      if (execBtn) {
+        execBtn.addEventListener('click', () => {
+          execBtn.disabled = true;
+          execBtn.innerHTML = '<span>⏳ Running 14 test cases...</span>';
+          document.getElementById('modal-body').innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);">Executing test assertions...</div>';
+          setTimeout(() => {
+            const runner = new TestRunner();
+            runner.runAll();
+            document.getElementById('modal-body').innerHTML = `
+              <div style="display:flex; justify-content:flex-end; margin-bottom:8px;">
+                <button id="btn-re-tests" class="btn btn-secondary" style="height:32px; font-size:11.5px;">🔄 Re-run Test Suite</button>
+              </div>
+            `;
+            const reBtn = document.getElementById('btn-re-tests');
+            if (reBtn) reBtn.addEventListener('click', () => { testsHaveRun = false; openTestsModal(); });
+            runner.renderResults(document.getElementById('test-results-container'));
+            testsHaveRun = true;
+          }, 50);
+        });
+      }
+    } else {
+      openModal(
+        'Automated DSA Verification Suite',
+        `
+        <div style="display:flex; justify-content:flex-end; margin-bottom:8px;">
+          <button id="btn-re-tests" class="btn btn-secondary" style="height:32px; font-size:11.5px;">🔄 Re-run Test Suite</button>
+        </div>
+        `
+      );
+      const reBtn = document.getElementById('btn-re-tests');
+      if (reBtn) reBtn.addEventListener('click', () => { testsHaveRun = false; openTestsModal(); });
+      const runner = new TestRunner();
+      runner.runAll();
+      runner.renderResults(document.getElementById('test-results-container'));
+    }
+  }
+
+  function openAboutModal() {
+    openModal(
+      'About City Navigator',
+      `
+      <div style="font-size:13px; line-height:1.6; color:var(--text);">
+        <p><strong>City Navigator</strong> is a DSA major capstone project integrating real-world OpenStreetMap data with handwritten graph algorithms on an interactive Leaflet.js map.</p>
+        <div style="margin-top:12px; padding:12px; background:var(--muted-bg); border-radius:var(--radius-md); border:1px solid var(--border);">
+          <div style="font-weight:700; margin-bottom:6px; color:var(--primary);">Core Principles:</div>
+          <ul style="padding-left:18px; color:var(--text-muted); font-size:12px;">
+            <li>Pure Vanilla JavaScript with Leaflet.js for real-world OpenStreetMap rendering.</li>
+            <li>Custom Binary Min-Heap Priority Queue with lazy-deletion decreaseKey.</li>
+            <li>Adjacency List graph representation with O(1) hash map indexing.</li>
+            <li>A* with Haversine geodesic heuristic (admissible for real-world coordinates).</li>
+            <li>Dynamic traffic multipliers (road-classification-based, not live data).</li>
+            <li>Nominatim geocoding (≥800ms rate-limited) + Overpass API road downloads.</li>
+            <li>Interactive road closure simulation with Stack-based undo history.</li>
+            <li>100% offline capable — pre-packaged New Delhi OSM topology included.</li>
+          </ul>
+        </div>
+        <div style="margin-top:10px; padding:10px; background:#FFF3CD; border:1px solid var(--warning); border-radius:var(--radius-md); font-size:11.5px; color:#856404;">
+          <strong>Traffic Note:</strong> Traffic multipliers in this system are estimated from road classification (motorway, primary, secondary, residential) — not from live OSM traffic data. Live traffic is not available in OpenStreetMap.
+        </div>
+        <div style="margin-top:10px; font-size:11px; color:var(--text-muted);">
+          Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener" style="color:var(--primary);">OpenStreetMap</a> contributors.
+          Geocoding by <a href="https://nominatim.org" target="_blank" rel="noopener" style="color:var(--primary);">Nominatim</a>.
+        </div>
+      </div>
+      `
+    );
+  }
+
+  // App Entry Point
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initApp);
+  } else {
+    initApp();
+  }
+
+})();
+</script>
+
+</body>
+</html>
